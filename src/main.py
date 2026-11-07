@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 try:
     # until python 3.10
     from collections import Mapping
@@ -24,12 +25,28 @@ SETTINGS["CAPTURE_MODE"] = (
 )
 logger = get_logger()
 
-ex = Experiment("pymarl")
+
+def _env_flag(name, default=True):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() not in {"0", "false", "no", "off"}
+
+
+ex = Experiment("pymarl", save_git_info=_env_flag("MAGPIE_SACRED_SAVE_GIT_INFO"))
 ex.logger = logger
 ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 results_path = os.path.join(dirname(dirname(abspath(__file__))), "results")
 # results_path = "/home/ubuntu/data"
+
+
+def _sanitize_path_fragment(value):
+    invalid_chars = '<>:"/\\|?*'
+    text = str(value)
+    for char in invalid_chars:
+        text = text.replace(char, "_")
+    return text
 
 
 @ex.main
@@ -124,7 +141,10 @@ if __name__ == "__main__":
     # Save to disk by default for sacred
     logger.info("Saving to FileStorageObserver in results/sacred.")
     file_obs_path = os.path.join(
-        results_path, f"sacred/{config_dict['name']}/{map_name}"
+        results_path,
+        "sacred",
+        _sanitize_path_fragment(config_dict["name"]),
+        _sanitize_path_fragment(map_name),
     )
 
     # ex.observers.append(MongoObserver(db_name="marlbench")) #url='172.31.5.187:27017'))

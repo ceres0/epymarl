@@ -1,0 +1,43 @@
+{
+  "allowed_context_keys": [
+    "actions",
+    "agent_count",
+    "base_reward",
+    "env_info",
+    "episode_limit",
+    "step_index",
+    "terminated",
+    "truncated",
+    "prev",
+    "curr",
+    "opponent_profile"
+  ],
+  "description": "Bootstrap reward spec for MAGPIE iterative LLM/TPE experiments. This file is only the starting point; core methods must generate and optionally activate new reward specs during training from feedback, TPE, and opponent summaries.",
+  "format_version": 1,
+  "metadata": {
+    "domain": "smac",
+    "role": "bootstrap",
+    "used_for": [
+      "tpe_llm_reward_only",
+      "llm_opponent_summary_reward",
+      "tpe_llm_opponent_reward"
+    ]
+  },
+  "name": "bootstrap_smac_team_battle_v1",
+  "reward_mode": "team",
+  "spec_id": "bootstrap_smac_team_battle",
+  "strategy": {
+    "code": "def compute_reward(context):\n    prev = context['prev']\n    curr = context['curr']\n    info = context['env_info']\n\n    enemy_damage = max(0.0, float(prev['enemy_health_total']) - float(curr['enemy_health_total']))\n    ally_damage = max(0.0, float(prev['ally_health_total']) - float(curr['ally_health_total']))\n    enemy_kills = max(0.0, float(prev['enemy_alive']) - float(curr['enemy_alive']))\n    ally_losses = max(0.0, float(prev['ally_alive']) - float(curr['ally_alive']))\n    time_penalty = 1.0 / max(1.0, float(context['episode_limit']))\n    win_bonus = 1.0 if bool(context['terminated']) and bool(info.get('battle_won', False)) else 0.0\n\n    subreward_dict = {\n        'win_bonus': 7.0 * win_bonus,\n        'enemy_damage': 0.15 * enemy_damage,\n        'ally_damage_penalty': -0.1 * ally_damage,\n        'enemy_kill_bonus': 1.5 * enemy_kills,\n        'ally_loss_penalty': -1.5 * ally_losses,\n        'time_penalty': -0.1 * time_penalty,\n    }\n\n    team_reward = float(context['base_reward']) + sum(subreward_dict.values())\n    aux_stats = {\n        'ally_alive': float(curr['ally_alive']),\n        'enemy_alive': float(curr['enemy_alive']),\n        'ally_health_total': float(curr['ally_health_total']),\n        'enemy_health_total': float(curr['enemy_health_total']),\n        'battle_won': 1.0 if bool(info.get('battle_won', False)) else 0.0,\n    }\n    return {\n        'team_reward': team_reward,\n        'subreward_dict': subreward_dict,\n        'aux_stats': aux_stats,\n    }\n",
+    "entrypoint": "compute_reward",
+    "type": "python_function"
+  },
+  "subreward_keys": [
+    "win_bonus",
+    "enemy_damage",
+    "ally_damage_penalty",
+    "enemy_kill_bonus",
+    "ally_loss_penalty",
+    "time_penalty"
+  ],
+  "version": 1
+}

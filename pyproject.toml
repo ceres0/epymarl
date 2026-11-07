@@ -1,0 +1,92 @@
+[project]
+name = "allforgraduation-epymarl"
+version = "0.1.0"
+description = "Local uv environment for the EPyMARL experiments in this repository."
+requires-python = ">=3.10,<3.12"
+dependencies = [
+  "absl-py",
+  "attrs",
+  "click",
+  "gymnasium",
+  "idna",
+  "imageio",
+  "matplotlib",
+  "mpyq",
+  "numpy",
+  "pbr",
+  "Pillow",
+  "pluggy",
+  "portpicker",
+  "probscale",
+  "protobuf<=3.20.3",
+  "py",
+  "pygame",
+  "pyparsing",
+  "pytest",
+  "python-dateutil",
+  "PyYAML==5.3.1",
+  "requests",
+  "sacred",
+  "seaborn",
+  "scipy",
+  "six",
+  "sk-video",
+  "snakeviz",
+  "tensorboard-logger",
+  "torch",
+  "torchvision",
+  "tornado",
+  "urllib3",
+  "websocket-client",
+  "whichcraft",
+  "wrapt",
+  "wandb>=0.25.0",
+]
+
+[project.optional-dependencies]
+sc2 = [
+  "pysc2==3.0.0",
+  "s2clientprotocol==4.10.1.75800.0",
+  "smac @ git+https://github.com/oxwhirl/smac.git",
+]
+sc2v2 = [
+  "smacv2 @ git+https://github.com/oxwhirl/smacv2.git",
+]
+smaclite = [
+  "smaclite @ git+https://github.com/uoe-agents/smaclite.git",
+]
+gymma-envs = [
+  "lbforaging",
+  "rware",
+  "pettingzoo",
+  "vmas",
+  "matrixgames @ git+https://github.com/uoe-agents/matrix-games.git",
+]
+platform-training = [
+  "pysc2==3.0.0",
+  "s2clientprotocol==4.10.1.75800.0",
+  "smac @ git+https://github.com/oxwhirl/smac.git",
+]
+all-envs = [
+  "pysc2==3.0.0",
+  "s2clientprotocol==4.10.1.75800.0",
+  "smac @ git+https://github.com/oxwhirl/smac.git",
+  "smacv2 @ git+https://github.com/oxwhirl/smacv2.git",
+  "smaclite @ git+https://github.com/uoe-agents/smaclite.git",
+  "lbforaging",
+  "rware",
+  "pettingzoo",
+  "vmas",
+  "matrixgames @ git+https://github.com/uoe-agents/matrix-games.git",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+analysis = [
+  "matplotlib>=3.7,<4.0",
+  "numpy>=1.23,<3.0",
+  "pandas>=2.0,<3.0",
+  "tensorboard>=2.13,<3.0",
+]

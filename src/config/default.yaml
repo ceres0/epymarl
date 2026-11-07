@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 # --- Defaults ---
 
 # --- pymarl options ---
@@ -8,6 +9,9 @@ common_reward: True  # Run experiment with common reward setup
 reward_scalarisation: "sum"  # How to aggregate rewards to single common reward (only used if common_reward is True)
 env_args: {} # Arguments for the environment
 batch_size_run: 1 # Number of environments to run in parallel
+parallel_env_start_delay: 0.0 # Optional seconds to stagger first reset for parallel env workers
+parallel_env_reset_retries: 0 # Retry env.reset inside parallel workers before surfacing startup failure
+parallel_env_reset_retry_delay: 5.0 # Seconds to wait between parallel env reset retries
 test_nepisode: 20 # Number of episodes to test for
 test_interval: 2000 # Test after {} timesteps have passed
 test_greedy: True # Use greedy evaluation (if False, will set epsilon floor to 0
@@ -27,6 +31,7 @@ wandb_mode: "offline" # W&B mode (online/offline)
 wandb_save_model: False # Save models to W&B (only done if use_wandb is True and save_model is True)
 save_model: False # Save the models to disk
 save_model_interval: 50000 # Save models after this many timesteps
+save_model_final_only: False # If true, save only one final checkpoint at the end of training
 checkpoint_path: "" # Load a checkpoint from this path
 evaluate: False # Evaluate model for test_nepisode episodes and quit (no training)
 render: False # Render the environment when evaluating (only when evaluate == True)
@@ -54,3 +59,57 @@ obs_last_action: True # Include the agent's last action (one_hot) in the observa
 repeat_id: 1
 label: "default_label"
 hypergroup: null
+unique_token: "" # Optional fixed run token used for checkpoint paths; empty keeps timestamped default.
+
+# --- LLM-MARL options ---
+card:
+  enabled: False
+  iterations: 1
+  reward_mode: "team"
+  reward_spec_path: ""
+  skip_train_on_tpe_fail: True
+  feedback_interval: 1
+  feedback_t_env_interval: 0
+  feedback_t_env_points: ""
+  trajectory_dump_dir: ""
+  save_episodes: True
+  llm:
+    model: ""
+    env_file: ""
+  generation:
+    enabled: False
+    mode: ""
+    auto_generate_after_feedback: False
+    activate_generated_spec: False
+    generate_on_final_feedback: True
+  tpe:
+    threshold: 0.75
+  opponent:
+    enabled: False
+    feature_extraction:
+      enabled: False
+    profile:
+      enabled: False
+      mode: "heuristic"
+      path: ""
+      vector_dim: 8
+      refresh_episodes: 1
+      min_episodes: 0
+      record_calls: True
+    reward_conditioning:
+      enabled: False
+    tpe:
+      enabled: False
+      behavior_weight: 0.5
+    critic:
+      enabled: False
+      inject_to: "mixer"
+    aux:
+      enabled: False
+      loss_weight: 0.0
+    ablation:
+      profile_mode: "none"
+      disable_behavior_pe: False
+      disable_hacking_check: False
+    cost_tracking:
+      enabled: False

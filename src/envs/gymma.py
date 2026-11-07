@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 from collections.abc import Iterable
 import warnings
 
@@ -34,6 +35,7 @@ class GymmaWrapper(MultiAgentEnv):
         seed,
         common_reward,
         reward_scalarisation,
+        card=None,
         **kwargs,
     ):
         self._env = gym.make(f"{key}", **kwargs)

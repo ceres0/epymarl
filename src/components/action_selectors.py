@@ -1,7 +1,19 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 import torch as th
 from torch.distributions import Categorical
 from .epsilon_schedules import DecayThenFlatSchedule
 REGISTRY = {}
+
+
+def _sample_available_actions(avail_actions):
+    """Sample uniformly from the available action mask along the last dimension."""
+    avail_actions = avail_actions.float()
+    totals = avail_actions.sum(dim=-1)
+    if th.any(totals <= 0):
+        raise RuntimeError("Cannot sample from an empty available-action mask")
+    draws = th.rand_like(totals) * totals
+    cdf = avail_actions.cumsum(dim=-1)
+    return (cdf <= draws.unsqueeze(-1)).sum(dim=-1).long()
 
 
 class MultinomialActionSelector():
@@ -55,7 +67,7 @@ class EpsilonGreedyActionSelector():
 
         random_numbers = th.rand_like(agent_inputs[:, :, 0])
         pick_random = (random_numbers < self.epsilon).long()
-        random_actions = Categorical(avail_actions.float()).sample().long()
+        random_actions = _sample_available_actions(avail_actions)
 
         picked_actions = pick_random * random_actions + (1 - pick_random) * masked_q_values.max(dim=2)[1]
         return picked_actions

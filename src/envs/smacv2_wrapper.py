@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 from pathlib import Path
 import yaml
 
@@ -7,6 +8,32 @@ from .multiagentenv import MultiAgentEnv
 
 
 SMACv2_CONFIG_DIR = Path(__file__).parent.parent / "config" / "envs" / "smacv2_configs"
+
+
+def _extract_unit_list(env, attr):
+    backend = env
+    for _ in range(5):
+        units = getattr(backend, attr, None)
+        if units is not None:
+            return list(units)
+        backend = getattr(backend, "env", None)
+        if backend is None:
+            break
+    return []
+
+
+def _unit_health(unit):
+    health = float(getattr(unit, "health", 0.0) or 0.0)
+    shield = float(getattr(unit, "shield", 0.0) or 0.0)
+    return max(0.0, health) + max(0.0, shield)
+
+
+def _unit_max_health(unit):
+    health_max = float(getattr(unit, "health_max", 0.0) or 0.0)
+    shield_max = float(getattr(unit, "shield_max", 0.0) or 0.0)
+    if shield_max == 0.0:
+        shield_max = float(getattr(unit, "max_shield", 0.0) or 0.0)
+    return max(0.0, health_max) + max(0.0, shield_max)
 
 
 def get_scenario_names():
@@ -23,6 +50,7 @@ def load_scenario(map_name, **kwargs):
 
 class SMACv2Wrapper(MultiAgentEnv):
     def __init__(self, map_name, seed, **kwargs):
+        self.map_name = map_name
         self.env = load_scenario(map_name, seed=seed, **kwargs)
         self.episode_limit = self.env.episode_limit
 
@@ -87,6 +115,36 @@ class SMACv2Wrapper(MultiAgentEnv):
 
     def get_stats(self):
         return self.env.get_stats()
+
+    def get_card_context(self):
+        allies = _extract_unit_list(self.env, "agents")
+        enemies = _extract_unit_list(self.env, "enemies")
+
+        ally_health_total = sum(_unit_health(unit) for unit in allies)
+        enemy_health_total = sum(_unit_health(unit) for unit in enemies)
+        ally_health_cap = max(1.0, sum(_unit_max_health(unit) for unit in allies))
+        enemy_health_cap = max(1.0, sum(_unit_max_health(unit) for unit in enemies))
+        ally_alive = sum(1 for unit in allies if _unit_health(unit) > 0.0)
+        enemy_alive = sum(1 for unit in enemies if _unit_health(unit) > 0.0)
+
+        return {
+            "ally_alive": float(ally_alive),
+            "enemy_alive": float(enemy_alive),
+            "ally_health_total": float(ally_health_total),
+            "enemy_health_total": float(enemy_health_total),
+            "ally_health_fraction": float(ally_health_total / ally_health_cap),
+            "enemy_health_fraction": float(enemy_health_total / enemy_health_cap),
+        }
+
+    def get_card_env_descriptor(self):
+        env_info = self.get_env_info()
+        return {
+            "env_name": "sc2v2",
+            "map_name": self.map_name,
+            "episode_limit": self.episode_limit,
+            "n_agents": env_info["n_agents"],
+            "n_actions": env_info["n_actions"],
+        }
 
 
 if __name__ == "__main__":

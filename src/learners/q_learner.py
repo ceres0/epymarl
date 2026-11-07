@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 import copy
 
 import torch as th
@@ -5,6 +6,8 @@ from torch.optim import Adam
 
 from components.episode_buffer import EpisodeBatch
 from components.standarize_stream import RunningMeanStd
+from modules.critics.opponent_aux import OpponentAuxHead, masked_aux_loss
+from modules.mixers.oa_qmix import OAQMixer
 from modules.mixers.vdn import VDNMixer
 from modules.mixers.qmix import QMixer
 
@@ -26,11 +29,25 @@ class QLearner:
                 self.mixer = VDNMixer()
             elif args.mixer == "qmix":
                 assert args.common_reward, "QMIX only supports common reward setting"
-                self.mixer = QMixer(args)
+                self.mixer = OAQMixer(args) if getattr(args, "oa_qmix_enabled", False) else QMixer(args)
+            elif args.mixer == "oa_qmix":
+                assert args.common_reward, "OAQMIX only supports common reward setting"
+                self.mixer = OAQMixer(args)
             else:
                 raise ValueError("Mixer {} not recognised.".format(args.mixer))
             self.params += list(self.mixer.parameters())
             self.target_mixer = copy.deepcopy(self.mixer)
+
+        self.aux_head = None
+        if getattr(args, "opponent_aux_enabled", False):
+            input_dim = int(args.hidden_dim) + int(getattr(args, "opp_profile_dim", 0) or 0)
+            self.aux_head = OpponentAuxHead(
+                input_dim=input_dim,
+                hidden_dim=args.mixing_embed_dim,
+                style_classes=4,
+                n_agents=args.n_agents,
+            )
+            self.params += list(self.aux_head.parameters())
 
         self.optimiser = Adam(params=self.params, lr=args.lr)
 
@@ -70,11 +87,20 @@ class QLearner:
 
         # Calculate estimated Q-Values
         mac_out = []
+        mac_hidden = []
         self.mac.init_hidden(batch.batch_size)
         for t in range(batch.max_seq_length):
             agent_outs = self.mac.forward(batch, t=t)
             mac_out.append(agent_outs)
+            if self.aux_head is not None:
+                mac_hidden.append(
+                    self.mac.hidden_states.reshape(batch.batch_size, self.n_agents, -1)
+                )
         mac_out = th.stack(mac_out, dim=1)  # Concat over time
+        if mac_hidden:
+            mac_hidden = th.stack(mac_hidden, dim=1)
+        else:
+            mac_hidden = None
         # Pick the Q-Values for the actions taken by each agent
         chosen_action_qvals = th.gather(mac_out[:, :-1], dim=3, index=actions).squeeze(
             3
@@ -105,12 +131,24 @@ class QLearner:
 
         # Mix
         if self.mixer is not None:
-            chosen_action_qvals = self.mixer(
-                chosen_action_qvals, batch["state"][:, :-1]
-            )
-            target_max_qvals = self.target_mixer(
-                target_max_qvals, batch["state"][:, 1:]
-            )
+            if isinstance(self.mixer, OAQMixer):
+                chosen_action_qvals = self.mixer(
+                    chosen_action_qvals,
+                    batch["state"][:, :-1],
+                    batch["opp_profile"][:, :-1] if "opp_profile" in batch.scheme else None,
+                )
+                target_max_qvals = self.target_mixer(
+                    target_max_qvals,
+                    batch["state"][:, 1:],
+                    batch["opp_profile"][:, 1:] if "opp_profile" in batch.scheme else None,
+                )
+            else:
+                chosen_action_qvals = self.mixer(
+                    chosen_action_qvals, batch["state"][:, :-1]
+                )
+                target_max_qvals = self.target_mixer(
+                    target_max_qvals, batch["state"][:, 1:]
+                )
 
         if self.args.standardise_returns:
             target_max_qvals = (
@@ -136,6 +174,10 @@ class QLearner:
 
         # Normal L2 loss, take mean over actual data
         loss = (masked_td_error**2).sum() / mask.sum()
+        aux_metrics = None
+        if self.aux_head is not None and "opp_label_mask" in batch.scheme:
+            aux_loss, aux_metrics = self._opponent_aux_loss(batch, mask, mac_hidden)
+            loss = loss + self.args.opponent_aux_loss_weight * aux_loss
 
         # Optimise
         self.optimiser.zero_grad()
@@ -157,6 +199,18 @@ class QLearner:
 
         if t_env - self.log_stats_t >= self.args.learner_log_interval:
             self.logger.log_stat("loss", loss.item(), t_env)
+            if isinstance(self.mixer, OAQMixer):
+                self.logger.log_stat("oa_qmix_enabled", 1.0, t_env)
+                self.logger.log_stat("critic_input_dim", self.mixer.critic_input_dim, t_env)
+                if "opp_profile" in batch.scheme:
+                    self.logger.log_stat(
+                        "opp_profile_norm",
+                        batch["opp_profile"][:, :-1].norm(dim=-1).mean().item(),
+                        t_env,
+                    )
+            if aux_metrics is not None:
+                for key, value in aux_metrics.items():
+                    self.logger.log_stat("aux/" + key, value, t_env)
             self.logger.log_stat("grad_norm", grad_norm.item(), t_env)
             mask_elems = mask.sum().item()
             self.logger.log_stat(
@@ -174,6 +228,29 @@ class QLearner:
                 t_env,
             )
             self.log_stats_t = t_env
+
+    def _opponent_aux_loss(self, batch, mask, mac_hidden):
+        if mac_hidden is None:
+            raise RuntimeError("opponent auxiliary loss requires live MAC hidden states")
+
+        # Use the live agent representation so the auxiliary objective trains
+        # parameters that also affect action values, not only a detached side head.
+        agent_repr = mac_hidden[:, :-1].mean(dim=2).reshape(-1, self.args.hidden_dim)
+        opp_profile = batch["opp_profile"][:, :-1].reshape(-1, int(getattr(self.args, "opp_profile_dim", 0) or 0))
+        label_mask = batch["opp_label_mask"][:, :-1].reshape(-1, 3) > 0
+        labels = {
+            "style": batch["opp_style_label"][:, :-1].reshape(-1),
+            "focus": batch["enemy_focus_target"][:, :-1].reshape(-1),
+            "danger": batch["danger_window"][:, :-1].reshape(-1),
+        }
+        valid = mask.reshape(-1, mask.size(-1)).any(dim=-1)
+        masks = {
+            "style": label_mask[:, 0] & valid,
+            "focus": label_mask[:, 1] & valid,
+            "danger": label_mask[:, 2] & valid,
+        }
+        outputs = self.aux_head(agent_repr, opp_profile)
+        return masked_aux_loss(outputs, labels, masks)
 
     def _update_targets_hard(self):
         self.target_mac.load_state(self.mac)
@@ -199,11 +276,15 @@ class QLearner:
         if self.mixer is not None:
             self.mixer.cuda()
             self.target_mixer.cuda()
+        if self.aux_head is not None:
+            self.aux_head.cuda()
 
     def save_models(self, path):
         self.mac.save_models(path)
         if self.mixer is not None:
             th.save(self.mixer.state_dict(), "{}/mixer.th".format(path))
+        if self.aux_head is not None:
+            th.save(self.aux_head.state_dict(), "{}/opponent_aux.th".format(path))
         th.save(self.optimiser.state_dict(), "{}/opt.th".format(path))
 
     def load_models(self, path):
@@ -214,6 +295,13 @@ class QLearner:
             self.mixer.load_state_dict(
                 th.load(
                     "{}/mixer.th".format(path),
+                    map_location=lambda storage, loc: storage,
+                )
+            )
+        if self.aux_head is not None:
+            self.aux_head.load_state_dict(
+                th.load(
+                    "{}/opponent_aux.th".format(path),
                     map_location=lambda storage, loc: storage,
                 )
             )

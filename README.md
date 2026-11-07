@@ -1,3 +1,50 @@
+# OA-QMIX research implementation
+
+This research code is based on [EPyMARL](https://github.com/uoe-agents/epymarl), originally developed by the University of Edinburgh agents group and contributors. It retains the upstream Apache 2.0 license and notices; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The upstream baseline in this branch is commit `cbc38c09588064eab978501d0f12c2cf58fa7fc2`.
+
+OA-QMIX conditions centralized QMIX value mixing on opponent profiles while keeping decentralized actor inputs local. The `magpie_critic_only` experiment uses heuristic profiles; `magpie_llm_profile_critic_only` uses LLM-generated profiles. Other reward, auxiliary, and MAGPIE modules are exploratory. LLM calls are for training-time profile construction, not execution-time action selection.
+
+This branch contains the OA-QMIX research implementation. Reproducing a particular reported experiment requires checking its saved configuration and code revision; this release has not been verified against every experiment. Environment files, credentials, training results, and internal experiment notes are excluded. Configure a provider locally using `config/llm/.env.llm.template`; never commit credentials.
+
+The original EPyMARL instructions follow.
+
+
+## OA-QMIX quick start
+
+From the repository root, install Python dependencies following the EPyMARL instructions below. Actual SMAC runs also require StarCraft II, SMAC, maps, and a working runtime; these prerequisites and full training have not been validated for this snapshot. Use the supplied local environment template for LLM profiles: copy `config/llm/.env.llm.template` to `config/llm/.env.llm.local` and set `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` privately. Never commit the resulting file. The experiment script otherwise defaults to `config/llm/.env.llm.deepseek`, which is not included.
+
+The following dry run prints the heuristic and LLM-profile training commands for SMAC `8m` without starting training or calling an API (tested with `uv run --offline --no-sync` and existing dependencies):
+
+```sh
+MAGPIE_LLM_ENV_FILE=config/llm/.env.llm.local uv run --offline --no-sync python scripts/magpie/utils/run_magpie_experiments.py \
+  --executor local --stage standard_smac_8m \
+  --methods magpie_critic_only magpie_llm_profile_critic_only \
+  --seeds 1 --t-max 10000 --dry-run
+```
+
+The script defaults to Docker Compose and contains historical `/pymarl` container paths. This snapshot does not include the project-specific Compose services or SC2 assets; `--executor local` is used above for command inspection. The short `t_max` is only an example, not the paper's experimental protocol.
+
+## Upstream modifications
+
+The following upstream files were modified in this snapshot; newly added files are visible in the Git diff against the upstream baseline. The original license and notice are retained.
+
+- `.gitignore`
+- `README.md`
+- `src/components/action_selectors.py`
+- `src/config/default.yaml`
+- `src/envs/__init__.py`
+- `src/envs/gymma.py`
+- `src/envs/multiagentenv.py`
+- `src/envs/smac_wrapper.py`
+- `src/envs/smacv2_wrapper.py`
+- `src/learners/q_learner.py`
+- `src/main.py`
+- `src/run.py`
+- `src/runners/episode_runner.py`
+- `src/runners/parallel_runner.py`
+
+---
+
 # Extended Python MARL framework - EPyMARL
 
 EPyMARL is  an extension of [PyMARL](https://github.com/oxwhirl/pymarl), and includes

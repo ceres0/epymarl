@@ -1,3 +1,4 @@
+# Modified from EPyMARL for OA-QMIX and opponent-profile research.
 from functools import partial
 
 import numpy as np
@@ -11,6 +12,7 @@ class EpisodeRunner:
     def __init__(self, args, logger):
         self.args = args
         self.logger = logger
+        self.card_runtime = None
         self.batch_size = self.args.batch_size_run
         assert self.batch_size == 1
 
@@ -25,6 +27,7 @@ class EpisodeRunner:
             **self.args.env_args,
             common_reward=self.args.common_reward,
             reward_scalarisation=self.args.reward_scalarisation,
+            card=getattr(self.args, "card", {}),
         )
         self.episode_limit = self.env.episode_limit
         self.t = 0
@@ -60,6 +63,32 @@ class EpisodeRunner:
     def close_env(self):
         self.env.close()
 
+    def set_card_runtime(self, card_runtime):
+        self.card_runtime = card_runtime
+
+    def _opponent_batch_fields(self):
+        if "opp_profile" not in self.batch.scheme:
+            return {}
+        profile = None
+        if self.card_runtime is not None:
+            profile = self.card_runtime.current_opponent_profile_vector()
+        if profile is None:
+            profile = [0.0] * int(getattr(self.args, "opp_profile_dim", 0) or 0)
+        fields = {"opp_profile": [profile]}
+        if "opp_label_mask" in self.batch.scheme:
+            labels = None
+            if self.card_runtime is not None:
+                labels = self.card_runtime.current_opponent_aux_labels()
+            if labels is None:
+                labels = {
+                    "opp_style_label": (0,),
+                    "enemy_focus_target": (0,),
+                    "danger_window": (0.0,),
+                    "opp_label_mask": [0.0, 0.0, 0.0],
+                }
+            fields.update({key: [value] for key, value in labels.items()})
+        return fields
+
     def reset(self):
         self.batch = self.new_batch()
         self.env.reset()
@@ -67,6 +96,16 @@ class EpisodeRunner:
 
     def run(self, test_mode=False):
         self.reset()
+        if self.card_runtime is not None:
+            current_card_context = self.env.get_card_context()
+            self.card_runtime.start_episode(
+                env_id=0,
+                metadata=self.env.get_card_env_descriptor(),
+                initial_context=current_card_context,
+                test_mode=test_mode,
+            )
+        else:
+            current_card_context = None
 
         terminated = False
         if self.args.common_reward:
@@ -81,6 +120,7 @@ class EpisodeRunner:
                 "avail_actions": [self.env.get_avail_actions()],
                 "obs": [self.env.get_obs()],
             }
+            pre_transition_data.update(self._opponent_batch_fields())
 
             self.batch.update(pre_transition_data, ts=self.t)
 
@@ -90,8 +130,22 @@ class EpisodeRunner:
                 self.batch, t_ep=self.t, t_env=self.t_env, test_mode=test_mode
             )
 
+            pre_card_context = current_card_context
             _, reward, terminated, truncated, env_info = self.env.step(actions[0])
             terminated = terminated or truncated
+            if self.card_runtime is not None:
+                current_card_context = self.env.get_card_context()
+                reward = self.card_runtime.compute_reward(
+                    env_id=0,
+                    step_index=self.t,
+                    actions=actions[0].detach().cpu().numpy(),
+                    env_reward=reward,
+                    pre_context=pre_card_context,
+                    post_context=current_card_context,
+                    terminated=terminated,
+                    truncated=truncated,
+                    env_info=env_info,
+                )
             if test_mode and self.args.render:
                 self.env.render()
             episode_return += reward
@@ -109,11 +163,15 @@ class EpisodeRunner:
 
             self.t += 1
 
+        if self.card_runtime is not None:
+            self.card_runtime.finish_episode(0, env_info)
+
         last_data = {
             "state": [self.env.get_state()],
             "avail_actions": [self.env.get_avail_actions()],
             "obs": [self.env.get_obs()],
         }
+        last_data.update(self._opponent_batch_fields())
         if test_mode and self.args.render:
             print(f"Episode return: {episode_return}")
         self.batch.update(last_data, ts=self.t)
@@ -154,6 +212,13 @@ class EpisodeRunner:
         return self.batch
 
     def _log(self, returns, stats, prefix):
+        if self.card_runtime is not None:
+            self.card_runtime.log_runner_stats(
+                self.logger,
+                prefix,
+                self.t_env,
+                test_mode=(prefix == "test_"),
+            )
         if self.args.common_reward:
             self.logger.log_stat(prefix + "return_mean", np.mean(returns), self.t_env)
             self.logger.log_stat(prefix + "return_std", np.std(returns), self.t_env)

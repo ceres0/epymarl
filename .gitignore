@@ -246,3 +246,9 @@ $RECYCLE.BIN/
 *.lnk
 
 # End of https://www.gitignore.io/api/linux,python,windows,pycharm+all,visualstudiocode
+# Local provider credentials and experiment artifacts
+config/llm/.env*
+.env
+.env.*
+!config/llm/.env.llm.template
+results/

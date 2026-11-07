@@ -1,0 +1,35 @@
+{
+  "allowed_context_keys": [
+    "actions",
+    "agent_count",
+    "base_reward",
+    "env_info",
+    "episode_limit",
+    "step_index",
+    "terminated",
+    "truncated",
+    "prev",
+    "curr"
+  ],
+  "description": "A generic team-reward spec for non-SMAC smoke tests. It preserves the environment reward and adds a small terminal bonus and time penalty.",
+  "format_version": 1,
+  "metadata": {
+    "domain": "generic",
+    "initial_author": "codex",
+    "phase": "smoke_validation"
+  },
+  "name": "generic_team_passthrough_v1",
+  "reward_mode": "team",
+  "spec_id": "generic_team_passthrough",
+  "strategy": {
+    "code": "def compute_reward(context):\n    base_reward = float(context['base_reward'])\n    terminated = bool(context['terminated'])\n    truncated = bool(context['truncated'])\n    terminal_bonus = 0.25 if terminated and not truncated and base_reward > 0.0 else 0.0\n    time_penalty = -0.01 / max(1.0, float(context['episode_limit']))\n    subreward_dict = {\n        'base_reward_term': base_reward,\n        'terminal_bonus': terminal_bonus,\n        'time_penalty': time_penalty,\n    }\n    return {\n        'team_reward': sum(subreward_dict.values()),\n        'subreward_dict': subreward_dict,\n        'aux_stats': {\n            'base_reward': base_reward,\n            'terminated': 1.0 if terminated else 0.0,\n            'truncated': 1.0 if truncated else 0.0,\n        },\n    }\n",
+    "entrypoint": "compute_reward",
+    "type": "python_function"
+  },
+  "subreward_keys": [
+    "base_reward_term",
+    "terminal_bonus",
+    "time_penalty"
+  ],
+  "version": 1
+}
